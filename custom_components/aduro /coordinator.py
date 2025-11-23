@@ -104,6 +104,11 @@ class AduroCoordinator(DataUpdateCoordinator):
         self._pre_wood_mode_temperature: float | None = None
         self._pre_wood_mode_operation_mode: int | None = None
 
+        # Manual mode tracking (fan-only mode)
+        self._manual_mode_active = False
+        self._manual_mode_keep_alive_task: asyncio.Task | None = None
+        self._manual_mode_keep_alive_interval = 20  # seconds
+
         # Temperature alert tracking
         self._high_smoke_temp_threshold = 370.0  # °C
         self._high_smoke_duration_threshold = 30  # seconds
@@ -1616,6 +1621,82 @@ class AduroCoordinator(DataUpdateCoordinator):
         else:
             _LOGGER.error("Failed to force auger")
         return result
+
+    async def async_enable_manual_mode(self) -> bool:
+        """Enable manual mode and start the fan."""
+        _LOGGER.info("Enabling manual mode")
+
+        # Step 1: Enter manual mode
+        result = await self._async_send_command("manual.manual_mode", 1)
+        if not result:
+            _LOGGER.error("Failed to enter manual mode")
+            return False
+
+        # Step 2: Start the fan (output_std=2)
+        result = await self._async_send_command("manual.output_std", 2)
+        if not result:
+            _LOGGER.error("Failed to start manual fan")
+            # Try to exit manual mode on failure
+            await self._async_send_command("manual.manual_mode", 0)
+            return False
+
+        # Step 3: Start keep-alive task
+        self._manual_mode_active = True
+        if self._manual_mode_keep_alive_task is None or self._manual_mode_keep_alive_task.done():
+            self._manual_mode_keep_alive_task = asyncio.create_task(
+                self._manual_mode_keep_alive_loop()
+            )
+
+        _LOGGER.info("Manual mode enabled successfully")
+        await self.async_request_refresh()
+        return True
+
+    async def async_disable_manual_mode(self) -> bool:
+        """Disable manual mode and stop the fan."""
+        _LOGGER.info("Disabling manual mode")
+
+        # Cancel keep-alive task
+        self._manual_mode_active = False
+        if self._manual_mode_keep_alive_task and not self._manual_mode_keep_alive_task.done():
+            self._manual_mode_keep_alive_task.cancel()
+            try:
+                await self._manual_mode_keep_alive_task
+            except asyncio.CancelledError:
+                pass
+            self._manual_mode_keep_alive_task = None
+
+        # Exit manual mode (this also stops the fan)
+        result = await self._async_send_command("manual.manual_mode", 0)
+        if result:
+            _LOGGER.info("Manual mode disabled successfully")
+        else:
+            _LOGGER.error("Failed to disable manual mode")
+
+        await self.async_request_refresh()
+        return result
+
+    async def _manual_mode_keep_alive_loop(self) -> None:
+        """Background task to send keep-alive commands."""
+        _LOGGER.info("Manual mode keep-alive task started")
+        try:
+            while self._manual_mode_active:
+                await asyncio.sleep(self._manual_mode_keep_alive_interval)
+                if self._manual_mode_active:
+                    _LOGGER.debug("Sending manual mode keep-alive")
+                    result = await self._async_send_command("manual.keep_alive", 1)
+                    if not result:
+                        _LOGGER.warning("Keep-alive command failed, manual mode may timeout")
+        except asyncio.CancelledError:
+            _LOGGER.info("Manual mode keep-alive task cancelled")
+            raise
+        except Exception as err:
+            _LOGGER.error("Error in manual mode keep-alive loop: %s", err)
+            self._manual_mode_active = False
+
+    @property
+    def manual_mode_active(self) -> bool:
+        """Return whether manual mode is active."""
+        return self._manual_mode_active
 
     async def async_set_custom(self, path: str, value: Any) -> bool:
         """Set a custom parameter."""

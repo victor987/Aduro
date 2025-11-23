@@ -51,6 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Forward setup to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Setup services
+    await async_setup_services(hass, coordinator)
+
     # Register options update listener
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
@@ -105,10 +108,18 @@ async def _load_options(coordinator: AduroCoordinator, entry: ConfigEntry) -> No
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # Disable manual mode if active
+    if coordinator.manual_mode_active:
+        await coordinator.async_disable_manual_mode()
+
     await coordinator.async_save_pellet_data()
-    
+
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
+        # Only unload services if this is the last entry
+        if not hass.data[DOMAIN]:
+            await async_unload_services(hass)
 
     return unload_ok
 
@@ -255,7 +266,7 @@ async def async_setup_services(hass: HomeAssistant, coordinator: AduroCoordinato
     async def handle_resume_after_wood(call):
         """Handle resume after wood mode service call."""
         _LOGGER.debug("Service called: resume_after_wood_mode")
-        
+
         for entry_id, coord in hass.data[DOMAIN].items():
             if isinstance(coord, AduroCoordinator):
                 success = await coord.async_resume_after_wood_mode()
@@ -263,6 +274,30 @@ async def async_setup_services(hass: HomeAssistant, coordinator: AduroCoordinato
                     _LOGGER.info("Resumed pellet operation after wood mode")
                 else:
                     _LOGGER.error("Failed to resume after wood mode")
+
+    async def handle_enable_manual_mode(call):
+        """Handle enable manual fan mode service call."""
+        _LOGGER.debug("Service called: enable_manual_mode")
+
+        for entry_id, coord in hass.data[DOMAIN].items():
+            if isinstance(coord, AduroCoordinator):
+                success = await coord.async_enable_manual_mode()
+                if success:
+                    _LOGGER.info("Manual fan mode enabled successfully")
+                else:
+                    _LOGGER.error("Failed to enable manual fan mode")
+
+    async def handle_disable_manual_mode(call):
+        """Handle disable manual fan mode service call."""
+        _LOGGER.debug("Service called: disable_manual_mode")
+
+        for entry_id, coord in hass.data[DOMAIN].items():
+            if isinstance(coord, AduroCoordinator):
+                success = await coord.async_disable_manual_mode()
+                if success:
+                    _LOGGER.info("Manual fan mode disabled successfully")
+                else:
+                    _LOGGER.error("Failed to disable manual fan mode")
 
     # Register services
     hass.services.async_register(
@@ -341,6 +376,18 @@ async def async_setup_services(hass: HomeAssistant, coordinator: AduroCoordinato
         handle_resume_after_wood,
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        "enable_manual_mode",
+        handle_enable_manual_mode,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        "disable_manual_mode",
+        handle_disable_manual_mode,
+    )
+
     _LOGGER.info("Aduro services registered")
 
 
@@ -366,6 +413,8 @@ async def async_unload_services(hass: HomeAssistant) -> None:
         SERVICE_RESUME_AFTER_WOOD,
         "force_auger",
         "set_custom",
+        "enable_manual_mode",
+        "disable_manual_mode",
     ]
 
     for service in services:

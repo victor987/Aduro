@@ -95,3 +95,13 @@ set_custom:
       example: 1
       selector:
         text:
+
+enable_manual_mode:
+  name: Enable Manual Fan Mode
+  description: Enable manual mode and start the fan without pellet system. Fan will run continuously with automatic keep-alive.
+  fields: {}
+
+disable_manual_mode:
+  name: Disable Manual Fan Mode
+  description: Disable manual mode and stop the fan.
+  fields: {}

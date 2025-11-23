@@ -28,6 +28,7 @@ async def async_setup_entry(
         AduroStartStopSwitch(coordinator, entry),
         AduroAutoShutdownSwitch(coordinator, entry),
         AduroAutoResumeAfterWoodSwitch(coordinator, entry),
+        AduroManualFanModeSwitch(coordinator, entry),
     ]
 
     async_add_entities(switches)
@@ -295,4 +296,62 @@ class AduroAutoResumeAfterWoodSwitch(AduroSwitchBase):
         """Disable auto-resume after wood mode."""
         _LOGGER.info("Switch: Disabling auto-resume after wood mode")
         self.coordinator.set_auto_resume_after_wood(False)
+        await self.coordinator.async_request_refresh()
+
+
+class AduroManualFanModeSwitch(AduroSwitchBase):
+    """Switch to enable/disable manual fan mode (fan runs without pellet system)."""
+
+    def __init__(self, coordinator: AduroCoordinator, entry: ConfigEntry) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, entry, "manual_fan_mode", "Manual Fan Mode")
+        self._attr_icon = "mdi:fan"
+        self._attr_entity_category = None  # Show as regular control, not config
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if manual fan mode is active."""
+        return self.coordinator.manual_mode_active
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on state."""
+        if self.is_on:
+            return "mdi:fan"
+        return "mdi:fan-off"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return additional attributes."""
+        attrs = {
+            "description": "Run fan only without pellet system",
+            "timeout": "60 seconds (kept alive automatically)",
+            "keep_alive_interval": f"{self.coordinator._manual_mode_keep_alive_interval}s",
+        }
+
+        if self.is_on:
+            attrs["status"] = "Fan running in manual mode"
+        else:
+            attrs["status"] = "Manual mode inactive"
+
+        return attrs
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable manual fan mode."""
+        _LOGGER.info("Switch: Enabling manual fan mode")
+        success = await self.coordinator.async_enable_manual_mode()
+        if success:
+            _LOGGER.info("Manual fan mode enabled successfully")
+        else:
+            _LOGGER.error("Failed to enable manual fan mode")
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable manual fan mode."""
+        _LOGGER.info("Switch: Disabling manual fan mode")
+        success = await self.coordinator.async_disable_manual_mode()
+        if success:
+            _LOGGER.info("Manual fan mode disabled successfully")
+        else:
+            _LOGGER.error("Failed to disable manual fan mode")
         await self.coordinator.async_request_refresh()
