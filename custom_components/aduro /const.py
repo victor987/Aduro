@@ -2,7 +2,7 @@
 from datetime import timedelta
 from typing import Final
 
-DOMAIN: Final = "aduro"
+DOMAIN: Final = "aduro_test"
 PLATFORMS: Final = ["sensor", "switch", "number", "button"]
 
 # Configuration keys
