@@ -108,6 +108,7 @@ class AduroCoordinator(DataUpdateCoordinator):
         self._force_fan_active = False
         self._force_fan_keep_alive_task: asyncio.Task | None = None
         self._force_fan_keep_alive_interval = 20  # seconds
+        self._force_fan_max_smoke_temp = 320.0  # °C - auto-stop threshold
 
         # Temperature alert tracking
         self._high_smoke_temp_threshold = 370.0  # °C
@@ -1757,15 +1758,28 @@ class AduroCoordinator(DataUpdateCoordinator):
         """Check for temperature alert conditions."""
         if "operating" not in data:
             return
-        
+
         smoke_temp = data["operating"].get("smoke_temp", 0)
         current_state = data["operating"].get("state")
         is_in_wood_mode = current_state in ["9"]
-        
+
         # Initialize alerts dict if not present
         if "alerts" not in data:
             data["alerts"] = {}
-        
+
+        # =========================================================================
+        # FORCE FAN TEMPERATURE CUTOFF
+        # =========================================================================
+        # Automatically stop force fan if smoke temperature exceeds threshold
+        if self._force_fan_active and smoke_temp > self._force_fan_max_smoke_temp:
+            _LOGGER.warning(
+                "FORCE FAN CUTOFF: Smoke temperature %.1f°C exceeds threshold %.1f°C - stopping force fan",
+                smoke_temp,
+                self._force_fan_max_smoke_temp
+            )
+            await self.async_stop_force_fan()
+            data["alerts"]["force_fan_auto_stopped"] = True
+
         # =========================================================================
         # HIGH SMOKE TEMPERATURE ALERT
         # =========================================================================

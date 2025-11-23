@@ -327,7 +327,14 @@ class AduroForceFanSwitch(AduroSwitchBase):
             "description": "Force fan to run without pellet system",
             "timeout": "60 seconds (kept alive automatically)",
             "keep_alive_interval": f"{self.coordinator._force_fan_keep_alive_interval}s",
+            "max_smoke_temp": f"{self.coordinator._force_fan_max_smoke_temp}°C",
+            "auto_cutoff": f"Stops if smoke temp > {self.coordinator._force_fan_max_smoke_temp}°C",
         }
+
+        # Add current smoke temperature if available
+        if self.coordinator.data and "operating" in self.coordinator.data:
+            smoke_temp = self.coordinator.data["operating"].get("smoke_temp", 0)
+            attrs["current_smoke_temp"] = f"{smoke_temp}°C"
 
         if self.is_on:
             attrs["status"] = "Fan forced on"
